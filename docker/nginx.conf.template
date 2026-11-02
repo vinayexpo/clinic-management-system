@@ -24,8 +24,48 @@ server {
         expires 30d;
     }
 
+    # Laravel Reverb WebSockets
+    location ^~ /app {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+
+    # Laravel Reverb API / broadcasting events
+    location ^~ /apps {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
     # Backend API endpoints
     location ^~ /api {
+        root /var/www/backend/public;
+        try_files $uri $uri/ /index.php?$query_string;
+
+        location ~ \.php$ {
+            include fastcgi_params;
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_param SCRIPT_FILENAME /var/www/backend/public/index.php;
+            fastcgi_param PATH_INFO $fastcgi_path_info;
+            fastcgi_buffer_size 16k;
+            fastcgi_buffers 4 16k;
+            fastcgi_read_timeout 300;
+        }
+    }
+
+    # Broadcasting auth endpoint: /broadcasting/auth
+    location ^~ /broadcasting {
         root /var/www/backend/public;
         try_files $uri $uri/ /index.php?$query_string;
 
@@ -53,4 +93,3 @@ server {
         deny all;
     }
 }
-

@@ -31,7 +31,7 @@ RUN apk add --no-cache \
 
 # Install PHP extensions
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j$(nproc) pdo_mysql bcmath pcntl gd zip intl
+    && docker-php-ext-install -j$(nproc) pdo_mysql bcmath pcntl posix gd zip intl
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

@@ -44,6 +44,19 @@ sed -i 's|^# DB_SOCKET=.*|DB_SOCKET=/run/mysqld/mysqld.sock|' .env
 if ! grep -q "DB_SOCKET=" .env; then
     echo "DB_SOCKET=/run/mysqld/mysqld.sock" >> .env
 fi
+
+# Reverb Configuration
+sed -i 's/^BROADCAST_CONNECTION=.*/BROADCAST_CONNECTION=reverb/' .env
+sed -i 's/^REVERB_APP_ID=.*/REVERB_APP_ID=clinic-local/' .env
+sed -i 's/^REVERB_APP_KEY=.*/REVERB_APP_KEY=clinic-local-key/' .env
+sed -i 's/^REVERB_APP_SECRET=.*/REVERB_APP_SECRET=local-development-only-change-in-production/' .env
+sed -i 's/^REVERB_HOST=.*/REVERB_HOST=127.0.0.1/' .env
+sed -i 's/^REVERB_PORT=.*/REVERB_PORT=8080/' .env
+sed -i 's/^REVERB_SCHEME=.*/REVERB_SCHEME=http/' .env
+sed -i 's/^REVERB_SERVER_HOST=.*/REVERB_SERVER_HOST=0.0.0.0/' .env
+sed -i 's/^REVERB_SERVER_PORT=.*/REVERB_SERVER_PORT=8080/' .env
+sed -i 's/^REVERB_ALLOWED_ORIGINS=.*/REVERB_ALLOWED_ORIGINS=*/' .env
+
 sed -i 's/^APP_ENV=.*/APP_ENV=production/' .env
 sed -i 's/^APP_DEBUG=.*/APP_DEBUG=false/' .env
 
@@ -64,4 +77,8 @@ php artisan view:cache || true
 
 chown -R www-data:www-data /var/www/backend/storage /var/www/backend/bootstrap/cache
 
-echo "==> [init-app] Clinic Management System is fully ready and online!"
+# Restart reverb and queue-worker now that .env and migrations are ready
+supervisorctl restart reverb || true
+supervisorctl restart queue-worker || true
+
+echo "==> [init-app] Clinic Management System & Reverb are fully ready and online!"
