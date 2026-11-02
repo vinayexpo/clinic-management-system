@@ -70,7 +70,7 @@ php artisan route:cache
 php artisan view:cache
 
 echo "==> Fixing permissions..."
-chown -R nobody:nobody /var/www/backend/storage /var/www/backend/bootstrap/cache
+chown -R www-data:www-data /var/www/backend/storage /var/www/backend/bootstrap/cache
 
 echo "==> Stopping temporary MariaDB..."
 mariadb-admin --socket=/run/mysqld/mysqld.sock -u root shutdown

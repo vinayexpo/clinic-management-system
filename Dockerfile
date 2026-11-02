@@ -1,5 +1,3 @@
-# Multi-stage Dockerfile for All-in-One Clinic Management System (Frontend + Backend + MySQL)
-
 # Stage 1: Build React Frontend
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
@@ -11,10 +9,10 @@ COPY frontend/ ./
 ENV VITE_API_BASE=/api/v1
 RUN npm run build
 
-# Stage 2: Runtime Image with PHP 8.3, MariaDB/MySQL, Nginx, and Supervisord
-FROM alpine:3.20
+# Stage 2: Runtime Image with PHP 8.4, MariaDB/MySQL, Nginx, and Supervisord
+FROM php:8.4-fpm-alpine
 
-# Install runtime packages
+# Install system dependencies
 RUN apk add --no-cache \
     bash \
     curl \
@@ -23,42 +21,32 @@ RUN apk add --no-cache \
     mariadb-client \
     nginx \
     supervisor \
-    php83 \
-    php83-fpm \
-    php83-pdo_mysql \
-    php83-mbstring \
-    php83-openssl \
-    php83-tokenizer \
-    php83-xml \
-    php83-ctype \
-    php83-json \
-    php83-session \
-    php83-curl \
-    php83-zip \
-    php83-gd \
-    php83-bcmath \
-    php83-pcntl \
-    php83-posix \
-    php83-gmp \
-    php83-phar \
-    php83-dom \
-    php83-xmlwriter \
-    php83-simplexml \
-    php83-fileinfo \
-    php83-intl \
-    composer
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    libzip-dev \
+    zip \
+    unzip \
+    icu-dev
 
-# Symlink php binary
-RUN ln -sf /usr/bin/php83 /usr/bin/php
+# Install PHP extensions
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) pdo_mysql bcmath pcntl gd zip intl
+
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # Setup runtime directories
 RUN mkdir -p /run/mysqld /var/lib/mysql /run/nginx /run/php /var/log/supervisor /etc/nginx/templates /var/www/frontend /var/www/backend \
     && chown -R mysql:mysql /run/mysqld /var/lib/mysql \
-    && chown -R nobody:nobody /run/nginx
+    && chown -R www-data:www-data /run/nginx
 
 # Configure PHP-FPM to listen on 127.0.0.1:9000
-RUN sed -i 's|^listen = .*|listen = 127.0.0.1:9000|' /etc/php83/php-fpm.d/www.conf \
-    && sed -i 's|^;clear_env = no|clear_env = no|' /etc/php83/php-fpm.d/www.conf
+RUN echo "[global]" > /usr/local/etc/php-fpm.d/zz-docker.conf \
+    && echo "daemonize = no" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+    && echo "[www]" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+    && echo "listen = 127.0.0.1:9000" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+    && echo "clear_env = no" >> /usr/local/etc/php-fpm.d/zz-docker.conf
 
 # Copy configuration files
 COPY docker/nginx.conf.template /etc/nginx/templates/nginx.conf.template
@@ -80,7 +68,7 @@ RUN composer dump-autoload --optimize --no-dev
 # Setup backend storage directories and permissions
 RUN mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache \
-    && chown -R nobody:nobody storage bootstrap/cache
+    && chown -R www-data:www-data storage bootstrap/cache
 
 EXPOSE 10000
 
