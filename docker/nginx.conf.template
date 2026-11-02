@@ -1,0 +1,55 @@
+server {
+    listen ${PORT};
+    server_name _;
+
+    root /var/www/frontend;
+    index index.html;
+
+    client_max_body_size 64M;
+
+    # Gzip Compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+
+    # React Single Page Application
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Uploaded media & storage
+    location /storage/ {
+        alias /var/www/backend/storage/app/public/;
+        try_files $uri =404;
+        access_log off;
+        expires 30d;
+    }
+
+    # Backend API endpoints
+    location ^~ /api {
+        root /var/www/backend/public;
+        try_files $uri $uri/ /index.php?$query_string;
+
+        location ~ \.php$ {
+            include fastcgi_params;
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_param SCRIPT_FILENAME /var/www/backend/public/index.php;
+            fastcgi_param PATH_INFO $fastcgi_path_info;
+            fastcgi_buffer_size 16k;
+            fastcgi_buffers 4 16k;
+            fastcgi_read_timeout 300;
+        }
+    }
+
+    # Direct PHP file fallback
+    location ~ \.php$ {
+        root /var/www/backend/public;
+        include fastcgi_params;
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_param SCRIPT_FILENAME /var/www/backend/public$fastcgi_script_name;
+        fastcgi_read_timeout 300;
+    }
+
+    location ~ /\.ht {
+        deny all;
+    }
+}
