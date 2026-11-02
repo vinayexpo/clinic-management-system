@@ -52,7 +52,8 @@ RUN echo "[global]" > /usr/local/etc/php-fpm.d/zz-docker.conf \
 COPY docker/nginx.conf.template /etc/nginx/templates/nginx.conf.template
 COPY docker/supervisord.conf /etc/supervisor/supervisord.conf
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY docker/init-app.sh /usr/local/bin/init-app.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/init-app.sh
 
 # Copy built frontend assets
 COPY --from=frontend-builder /app/frontend/dist /var/www/frontend
