@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "better-design": {
+      "source": "marvkr/better-design",
+      "sourceType": "github",
+      "skillPath": "skills/better-design/SKILL.md",
+      "computedHash": "1cec6f1593b905a5238c7459f28c3a790861a672f8eeb18e00beb22fce8d53f7"
+    },
+    "superdesign": {
+      "source": "superdesigndev/superdesign-skill",
+      "sourceType": "github",
+      "skillPath": "skills/superdesign/SKILL.md",
+      "computedHash": "d79ff28d01cb9479e0cccd0ca1c6bbaa2e6a1f97d960f6b610dc578574095097"
+    }
+  }
+}

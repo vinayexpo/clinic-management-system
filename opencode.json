@@ -1,0 +1,14 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "better-design": {
+      "type": "remote",
+      "url": "https://better-design.com/api/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer bd_live_VyqCsrant2BmZbz0GcB1ereE9YwQOPBg",
+        "X-Better-Design-Client": "opencode"
+      }
+    }
+  }
+}

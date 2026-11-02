@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Environment files
+.env
+.env.*
+.env.backup
+.env.production
+!.env.example
+
+# Local SQLite databases
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+
+# Build output & caches
+dist/
+build/
+.vite/
+*.tsbuildinfo
+.phpunit.cache
+.phpunit.result.cache
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.cursor/
+.claude/
+.codex/
+.continue/
+.superdesign/
+.better-design/
+
+# Laravel runtime
+/backend/public/storage
+/backend/public/hot
+/backend/public/build
+/backend/storage/*.key
+/backend/storage/pail
+_ide_helper.php
+Homestead.json
+Homestead.yaml

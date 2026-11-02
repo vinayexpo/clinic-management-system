@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "postToolUse": [
+      {
+        "type": "command",
+        "command": "npx -y better-design@0.44.0 review --hook --host copilot",
+        "matcher": "edit|create|str_replace_editor|apply_patch"
+      }
+    ]
+  },
+  "version": 1
+}
