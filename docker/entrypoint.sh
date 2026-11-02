@@ -11,8 +11,8 @@ if [ ! -d "/var/lib/mysql/mysql" ]; then
     mariadb-install-db --user=mysql --datadir=/var/lib/mysql > /dev/null 2>&1
 fi
 
-echo "==> Starting temporary MariaDB to configure database and run migrations..."
-/usr/bin/mysqld_safe --datadir=/var/lib/mysql --user=mysql --skip-networking &
+echo "==> Starting MariaDB in background..."
+/usr/bin/mariadbd-safe --datadir=/var/lib/mysql --user=mysql --bind-address=127.0.0.1 --port=3306 &
 MYSQL_PID=$!
 
 echo "==> Waiting for MariaDB to become ready..."
@@ -28,8 +28,10 @@ mariadb --socket=/run/mysqld/mysqld.sock -u root <<EOF
 CREATE DATABASE IF NOT EXISTS cms CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'cms'@'localhost' IDENTIFIED BY 'cms_password';
 CREATE USER IF NOT EXISTS 'cms'@'127.0.0.1' IDENTIFIED BY 'cms_password';
+CREATE USER IF NOT EXISTS 'cms'@'%' IDENTIFIED BY 'cms_password';
 GRANT ALL PRIVILEGES ON cms.* TO 'cms'@'localhost';
 GRANT ALL PRIVILEGES ON cms.* TO 'cms'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON cms.* TO 'cms'@'%';
 FLUSH PRIVILEGES;
 EOF
 
@@ -51,6 +53,10 @@ sed -i 's/^# DB_USERNAME=.*/DB_USERNAME=cms/' .env
 sed -i 's/^DB_USERNAME=.*/DB_USERNAME=cms/' .env
 sed -i 's/^# DB_PASSWORD=.*/DB_PASSWORD=cms_password/' .env
 sed -i 's/^DB_PASSWORD=.*/DB_PASSWORD=cms_password/' .env
+sed -i 's|^# DB_SOCKET=.*|DB_SOCKET=/run/mysqld/mysqld.sock|' .env
+if ! grep -q "DB_SOCKET=" .env; then
+    echo "DB_SOCKET=/run/mysqld/mysqld.sock" >> .env
+fi
 sed -i 's/^APP_ENV=.*/APP_ENV=production/' .env
 sed -i 's/^APP_DEBUG=.*/APP_DEBUG=false/' .env
 
