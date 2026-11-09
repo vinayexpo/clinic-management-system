@@ -766,8 +766,21 @@ export const aiApi = {
   models(token: string, data: { api_url?: string; api_key?: string } = {}) {
     return apiJson<ApiItem<{ models: AiModelRow[]; resolved_url: string }>>("/ai/models", { method: "POST", body: JSON.stringify(data) }, token);
   },
-  consultationDraft(token: string, visitId: number | string) {
-    return apiJson<ApiItem<AiConsultDraft>>("/ai/assist/consultation", { method: "POST", body: JSON.stringify({ visit_id: visitId }) }, token);
+  consultationDraft(token: string, visitId: number | string, data?: {
+    instructions?: string;
+    current_symptoms?: string;
+    current_vitals?: Record<string, unknown>;
+    current_exam?: string;
+    current_diagnosis?: string;
+    current_plan?: string;
+  }) {
+    return apiJson<ApiItem<AiConsultDraft>>("/ai/assist/consultation", {
+      method: "POST",
+      body: JSON.stringify({
+        visit_id: visitId,
+        ...(data || {}),
+      }),
+    }, token);
   },
   prescriptionDraft(token: string, visitId: number | string, instructions?: string) {
     return apiJson<ApiItem<{ items: AiPrescriptionItem[] }>>("/ai/assist/prescription", { method: "POST", body: JSON.stringify({ visit_id: visitId, instructions: instructions || undefined }) }, token);

@@ -141,13 +141,41 @@ export function AISettings({ token, toast, onChanged }: { token: string; toast: 
 
       {!loading && (
         <>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", display: "block", mb: 0.75 }}>
+              Quick Provider Presets
+            </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {[
+                { name: "Google Gemini", url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-1.5-flash" },
+                { name: "OpenAI", url: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+                { name: "Groq", url: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
+                { name: "DeepSeek", url: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+                { name: "OpenRouter", url: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
+              ].map((preset) => (
+                <Chip
+                  key={preset.name}
+                  size="small"
+                  variant={apiUrl === preset.url ? "filled" : "outlined"}
+                  color={apiUrl === preset.url ? "primary" : "default"}
+                  label={preset.name}
+                  onClick={() => {
+                    setApiUrl(preset.url);
+                    if (!model.trim() || models.length === 0) setModel(preset.model);
+                  }}
+                  sx={{ cursor: "pointer", fontSize: "0.75rem" }}
+                />
+              ))}
+            </Stack>
+          </Box>
+
           <TextField
             fullWidth
             label="API URL"
             placeholder="https://api.openai.com/v1"
             value={apiUrl}
             onChange={(e) => setApiUrl(e.target.value)}
-            helperText="Any OpenAI-compatible service."
+            helperText="Any OpenAI-compatible service endpoint."
             sx={{ mt: 2 }}
           />
           <TextField

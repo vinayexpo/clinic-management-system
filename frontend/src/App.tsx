@@ -340,6 +340,7 @@ function AuthedApp() {
               ai={ai}
               target={consultTarget}
               onClearTarget={() => setConsultTarget(null)}
+              onOpenSettings={() => setPage("Settings")}
             />
           )}
           {!loading && page === "Prescriptions" && <PrescriptionsPage token={token} ai={ai} />}
@@ -444,7 +445,7 @@ function DashboardFull({ role, dash, appts, doctors, patientById, go }: { role: 
 // ---------------------------------------------------------------------------
 // Consultation (real visits)
 // ---------------------------------------------------------------------------
-function ConsultationReal({ role, currentUserId, patients, doctors, token, toast, ai, target, onClearTarget }: { role: UserRole; currentUserId: number; patients: PatientRow[]; doctors: DoctorRow[]; token: string; toast: (s: string) => void; ai: AiStatus | null; target?: { patientId?: number; appointmentId?: number } | null; onClearTarget?: () => void }) {
+function ConsultationReal({ role, currentUserId, patients, doctors, token, toast, ai, target, onClearTarget, onOpenSettings }: { role: UserRole; currentUserId: number; patients: PatientRow[]; doctors: DoctorRow[]; token: string; toast: (s: string) => void; ai: AiStatus | null; target?: { patientId?: number; appointmentId?: number } | null; onClearTarget?: () => void; onOpenSettings?: () => void }) {
   const [selectedPatient, setSelectedPatient] = useState<number | "">(patients[0]?.id ?? "");
   const [selectedPatientRow, setSelectedPatientRow] = useState<PatientRow | null>(patients[0] ?? null);
   const [selectedDoctor, setSelectedDoctor] = useState<number | "">("");
@@ -791,21 +792,37 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
               size="small"
             />
           </Stack>
-          <TextField fullWidth multiline minRows={2} label="Presenting symptoms" value={symptoms} onChange={(e) => setSymptoms(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
-          <TextField fullWidth multiline minRows={2} label="Examination notes" value={exam} onChange={(e) => setExam(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
-          <TextField fullWidth label="Diagnosis" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
-          <TextField fullWidth multiline minRows={3} label="Treatment plan" value={plan} onChange={(e) => setPlan(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
-          <TextField type="date" fullWidth label="Follow-up date" value={followUp} onChange={(e) => setFollowUp(e.target.value)} disabled={finalized || !activeVisit || visitLoading} InputLabelProps={{ shrink: true }} sx={{ mt: 2 }} />
 
           <AiConsultAssist
             token={token}
             ai={ai}
             visit={activeVisit}
+            currentSymptoms={symptoms}
+            currentVitals={vitals}
+            currentExam={exam}
+            currentDiagnosis={diagnosis}
+            currentPlan={plan}
             disabled={busy || visitLoading}
             busyParent={busy || visitLoading}
             onApply={applyAiDraft}
+            onApplyField={(field, val) => {
+              if (field === "examination_notes") setExam(val);
+              else if (field === "diagnosis") setDiagnosis(val);
+              else if (field === "treatment_plan") setPlan(val);
+              else if (field === "follow_up_date") setFollowUp(val);
+              else if (field === "follow_up_suggestion") {
+                setPlan((prev) => (prev ? `${prev}\n\nFollow-up: ${val}` : `Follow-up: ${val}`));
+              }
+            }}
+            onOpenSettings={onOpenSettings}
             toast={toast}
           />
+
+          <TextField fullWidth multiline minRows={2} label="Presenting symptoms" value={symptoms} onChange={(e) => setSymptoms(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
+          <TextField fullWidth multiline minRows={2} label="Examination notes" value={exam} onChange={(e) => setExam(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
+          <TextField fullWidth label="Diagnosis" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
+          <TextField fullWidth multiline minRows={3} label="Treatment plan" value={plan} onChange={(e) => setPlan(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
+          <TextField type="date" fullWidth label="Follow-up date" value={followUp} onChange={(e) => setFollowUp(e.target.value)} disabled={finalized || !activeVisit || visitLoading} InputLabelProps={{ shrink: true }} sx={{ mt: 2 }} />
 
           {/* Audited Amendments List */}
           {activeVisit?.amendments && activeVisit.amendments.length > 0 && (

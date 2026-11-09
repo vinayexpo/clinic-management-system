@@ -127,7 +127,15 @@ class AiController extends Controller
     public function consultationAssist(Request $r): mixed
     {
         $this->authorizeRoles($r, ['admin', 'doctor']);
-        $d = $r->validate(['visit_id' => ['required', 'integer']]);
+        $d = $r->validate([
+            'visit_id' => ['required', 'integer'],
+            'instructions' => ['nullable', 'string', 'max:2000'],
+            'current_symptoms' => ['nullable', 'string', 'max:2000'],
+            'current_vitals' => ['nullable', 'array'],
+            'current_exam' => ['nullable', 'string', 'max:2000'],
+            'current_diagnosis' => ['nullable', 'string', 'max:500'],
+            'current_plan' => ['nullable', 'string', 'max:2000'],
+        ]);
         $setting = $this->setting($r, 'consultation');
 
         $visit = Visit::query()->with(['patient', 'doctor'])->find($d['visit_id']);
@@ -142,18 +150,45 @@ class AiController extends Controller
             ->orderByDesc('visit_date')->orderByDesc('id')
             ->limit(4)->get()];
 
+        $symptoms = filled($d['current_symptoms'] ?? null) ? trim($d['current_symptoms']) : ($visit->symptoms ?: 'none recorded');
+        $vitals = ! empty($d['current_vitals']) ? $d['current_vitals'] : ($visit->vitals ?? []);
+        $vitalsFormatted = collect($vitals)
+            ->filter(fn ($v) => filled($v))
+            ->map(fn ($v, $k) => "{$k}: {$v}")
+            ->implode(', ');
+
         $context = $this->patientBlock($patient)."\n".
             'Recorded allergies: '.($patient->allergies_summary ?: 'none recorded')."\n".
-            $this->symptomBlock($visit)."\n".
-            "Previous consultations:\n".$this->visitLines($history);
+            "Presenting symptoms: {$symptoms}\n".
+            "Recorded vitals: ".($vitalsFormatted ?: 'none')."\n";
+
+        if (filled($d['current_exam'] ?? null)) {
+            $context .= "Clinician examination findings/rough notes: ".trim($d['current_exam'])."\n";
+        }
+        if (filled($d['current_diagnosis'] ?? null)) {
+            $context .= "Current working diagnosis: ".trim($d['current_diagnosis'])."\n";
+        }
+        if (filled($d['current_plan'] ?? null)) {
+            $context .= "Current treatment plan: ".trim($d['current_plan'])."\n";
+        }
+        if (filled($d['instructions'] ?? null)) {
+            $context .= "Clinician instruction or prompt: ".trim($d['instructions'])."\n";
+        }
+
+        $context .= "Previous consultations:\n".$this->visitLines($history);
 
         $prompt = $context."\n\n".
-            'Draft, as concise clinical text a doctor can edit freely when they accept it. '.
-            'JSON only, no markdown, with keys "examination_notes", "diagnosis", "treatment_plan", '.
-            '"follow_up_suggestion" and "follow_up_date". Each field 1-3 sentences; write the '.
-            'diagnosis as a short phrase; use only findings recorded above; '.
-            'follow_up_date is a "YYYY-MM-DD" date or "" when none is suggested. '.
-            'Never invent lab results, imaging findings or medicines.';
+            'Act as an expert clinical documentation assistant for a physician. '.
+            'Draft concise, professional, structured clinical notes for this patient visit. '.
+            'Return JSON only (no markdown, no markdown fences) with keys: '.
+            '"examination_notes", "diagnosis", "treatment_plan", "follow_up_suggestion" and "follow_up_date". '.
+            'Rules: '.
+            '- "examination_notes": 1-3 professional sentences detailing physical examination observations, vital signs interpretation, and relevant clinical findings. '.
+            '- "diagnosis": concise medical diagnosis or clinical impression (short phrase, e.g. "Acute viral pharyngitis"). '.
+            '- "treatment_plan": clear, organized steps for clinical management, supportive care, lifestyle recommendations, and non-pharmacological advice. '.
+            '- "follow_up_suggestion": recommendation for re-evaluation interval and red-flag symptoms. '.
+            '- "follow_up_date": date in "YYYY-MM-DD" format if a specific timeframe is suggested (today is '.now()->toDateString().') or "" if routine/as-needed. '.
+            'Never invent unsupported laboratory results, imaging, or invasive procedures.';
 
         try {
             $raw = AiGateway::chat($setting->base_url, $setting->api_key, $setting->model, [
