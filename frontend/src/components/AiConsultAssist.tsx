@@ -170,9 +170,6 @@ export function AiConsultAssist({
           <Box>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, display: "flex", alignItems: "center", gap: 0.75 }}>
               AI Clinical Notes Assistant
-              {configured && ai?.model && (
-                <Chip size="small" variant="outlined" label={ai.model} sx={{ height: 20, fontSize: "0.7rem" }} />
-              )}
             </Typography>
             <Typography variant="caption" color="text.secondary">
               Draft, structure, and polish diagnosis, examination & treatment plans
