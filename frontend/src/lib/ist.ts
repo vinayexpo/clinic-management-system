@@ -41,6 +41,34 @@ export function istTime(d: Date = new Date()): string {
   return new Intl.DateTimeFormat("en-IN", { timeZone: CLINIC_TZ, hour: "numeric", minute: "2-digit", hour12: true }).format(d);
 }
 
+/** 24-hour clinic time "HH:mm" in IST for the given instant (default: now). */
+export function istTime24(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: CLINIC_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(d);
+}
+
+/** Returns the next clean slot time (e.g. at 16:35 -> next 15-min mark like 16:45), or current time if already on mark. */
+export function istNextSlotTime(intervalMinutes = 15, d: Date = new Date()): string {
+  const current = istTime24(d);
+  const [hStr, mStr] = current.split(":");
+  let h = parseInt(hStr, 10);
+  let m = parseInt(mStr, 10);
+  const rem = m % intervalMinutes;
+  if (rem > 0) {
+    m += intervalMinutes - rem;
+    if (m >= 60) {
+      h += Math.floor(m / 60);
+      m = m % 60;
+    }
+  }
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(h)}:${pad(m)}`;
+}
+
 /** Short date and time, e.g. "14 Oct 2026, 2:05 pm", in IST. */
 export function istDateTime(value: string | Date | null | undefined): string {
   if (!value) return "—";

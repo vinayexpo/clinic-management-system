@@ -216,10 +216,20 @@ class ApiController extends Controller
     {
         $d = $r->validate(['patient_id' => 'required|exists:patients,id', 'doctor_id' => 'required|exists:doctors,id', 'appointment_date' => 'nullable|date', 'start_time' => 'nullable|date_format:H:i', 'end_time' => 'nullable|date_format:H:i|after:start_time', 'reason_for_visit' => 'nullable|string|max:255']);
         $date = $d['appointment_date'] ?? today()->toDateString();
+        $startTime = $d['start_time'] ?? now()->format('H:i');
 
-        return DB::transaction(function () use ($r, $d, $date, $walkIn) {
+        $now = now();
+        $today = $now->toDateString();
+        $cutoff = $now->copy()->subMinutes(2)->format('H:i');
+
+        if ($date === $today) {
+            abort_if($startTime < $cutoff, 422, 'Cannot schedule an appointment or walk-in for a past time today (current clinic time is '.$now->format('H:i').').');
+        } elseif ($date < $today) {
+            abort(422, 'Cannot schedule an appointment in the past.');
+        }
+
+        return DB::transaction(function () use ($r, $d, $date, $walkIn, $startTime) {
             $doctor = Doctor::findOrFail($d['doctor_id']);
-            $startTime = $d['start_time'] ?? now()->format('H:i');
             $slotMinutes = (int) (ClinicSetting::value('appointment_slot_minutes') ?: 30);
             $endTime = $d['end_time'] ?? Carbon::createFromFormat('H:i', substr($startTime, 0, 5))->addMinutes($slotMinutes)->format('H:i');
             abort_if(Appointment::where('doctor_id', $doctor->id)
@@ -337,6 +347,16 @@ class ApiController extends Controller
         $date = (string) ($d['appointment_date'] ?? $appointment->appointment_date->toDateString());
         $startTime = (string) ($d['start_time'] ?? $appointment->start_time);
         $endTime = array_key_exists('end_time', $d) ? $d['end_time'] : $appointment->end_time;
+
+        $now = now();
+        $today = $now->toDateString();
+        $cutoff = $now->copy()->subMinutes(2)->format('H:i');
+        if ($date === $today) {
+            abort_if($startTime < $cutoff, 422, 'Cannot reschedule an appointment to a past time today (current clinic time is '.$now->format('H:i').').');
+        } elseif ($date < $today) {
+            abort(422, 'Cannot reschedule an appointment to a past date.');
+        }
+
         abort_if($this->hasAppointmentConflict($appointment, $doctorId, $date, $startTime, $endTime), 422, 'The doctor already has an appointment in this time range.');
         $appointment->update($d);
         $this->audit($r, 'updated', 'appointment', $appointment->id, 'Appointment rescheduled or updated.');
@@ -404,6 +424,7 @@ class ApiController extends Controller
         return $this->ok([
             'date' => $date->toDateString(),
             'day_of_week' => $date->dayOfWeek,
+            'current_time' => now()->format('H:i'),
             'schedules' => $doctor->schedules()->where('day_of_week', $date->dayOfWeek)->where('is_active', true)->get(),
             'appointments' => $doctor->appointments()->whereDate('appointment_date', $date)->whereNotIn('status', ['cancelled', 'no_show'])->orderBy('start_time')->get(),
         ]);

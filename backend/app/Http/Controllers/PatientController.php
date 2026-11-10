@@ -336,6 +336,16 @@ class PatientController extends Controller
         $date = $data['appointment_date'];
         $startTime = $data['start_time'];
 
+        $now = now();
+        $today = $now->toDateString();
+        $cutoff = $now->copy()->subMinutes(2)->format('H:i');
+
+        if ($date === $today) {
+            abort_if($startTime < $cutoff, 422, 'Cannot book an appointment for a past time today (current clinic time is '.$now->format('H:i').').');
+        } elseif ($date < $today) {
+            abort(422, 'Cannot book an appointment in the past.');
+        }
+
         $slotMinutes = (int) (ClinicSetting::value('appointment_slot_minutes') ?: 30);
         $endTime = Carbon::createFromFormat('H:i', $startTime)->addMinutes($slotMinutes)->format('H:i');
 

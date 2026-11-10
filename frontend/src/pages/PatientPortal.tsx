@@ -62,6 +62,7 @@ import { useNotifications } from "../lib/notifications";
 import { useAuth } from "../AuthContext";
 import { useClinicLogo } from "../lib/clinicLogo";
 import { useLiveRefresh } from "../lib/realtime";
+import { istDate, istTime24 } from "../lib/ist";
 
 export type PortalTab = "profile" | "appointments" | "visits" | "prescriptions" | "invoices";
 
@@ -644,9 +645,9 @@ function BookAppointmentDialog({
 }) {
   const [doctors, setDoctors] = useState<DoctorRow[]>([]);
   const [doctorId, setDoctorId] = useState<number | "">("");
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = istDate();
   const [date, setDate] = useState(todayIso);
-  const [startTime, setStartTime] = useState("09:30");
+  const [startTime, setStartTime] = useState("");
   const [reason, setReason] = useState("");
   const [loadingDoctors, setLoadingDoctors] = useState(false);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
@@ -655,11 +656,17 @@ function BookAppointmentDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const TIME_SLOTS = [
-    "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
-    "12:00", "12:30", "14:00", "14:30", "15:00", "15:30",
-    "16:00", "16:30", "17:00", "17:30", "18:00",
+  const ALL_TIME_SLOTS = [
+    "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
+    "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00",
+    "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30",
+    "19:00", "19:30", "20:00",
   ];
+
+  const isToday = date === todayIso;
+  const currentIst = istTime24();
+  // Filter out any past time slots for today so they are never shown
+  const visibleSlots = ALL_TIME_SLOTS.filter((s) => !isToday || s >= currentIst);
 
   useEffect(() => {
     if (!open) return;
@@ -680,6 +687,19 @@ function BookAppointmentDialog({
   }, [open, token]);
 
   useEffect(() => {
+    // When date changes or slots load, select first unbooked available slot if needed
+    if (visibleSlots.length > 0) {
+      if (!startTime || (isToday && startTime < currentIst) || bookedSlots.has(startTime)) {
+        const firstOpen = visibleSlots.find((s) => !bookedSlots.has(s));
+        if (firstOpen) setStartTime(firstOpen);
+        else if (startTime && (bookedSlots.has(startTime) || (isToday && startTime < currentIst))) setStartTime("");
+      }
+    } else {
+      setStartTime("");
+    }
+  }, [date, isToday, currentIst, bookedSlots]);
+
+  useEffect(() => {
     if (!doctorId || !date || !open) return;
     setLoadingAvailability(true);
     doctorApi.availability(token, doctorId, date)
@@ -689,9 +709,8 @@ function BookAppointmentDialog({
         setBookedSlots(booked);
         const hasSched = (payload?.schedules || []).length > 0;
         setHasWorkingDay(hasSched);
-        // If current startTime is booked, pick first available
         if (booked.has(startTime)) {
-          const firstOpen = TIME_SLOTS.find((s) => !booked.has(s));
+          const firstOpen = visibleSlots.find((s) => !booked.has(s));
           if (firstOpen) setStartTime(firstOpen);
         }
       })
@@ -710,6 +729,10 @@ function BookAppointmentDialog({
     }
     if (!date) {
       setError("Please select an appointment date.");
+      return;
+    }
+    if (isToday && startTime < currentIst) {
+      setError(`Cannot book a slot for a past time. Current time is ${currentIst}. Please select an upcoming slot.`);
       return;
     }
     if (!startTime) {
@@ -784,32 +807,38 @@ function BookAppointmentDialog({
             <Box>
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                  Select preferred time slot
+                  {isToday ? `Available time slots for today (from ${currentIst} onwards)` : "Select preferred time slot"}
                 </Typography>
                 {loadingAvailability && <CircularProgress size={14} />}
               </Box>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-                {TIME_SLOTS.map((slot) => {
-                  const selected = startTime === slot;
-                  const isBooked = bookedSlots.has(slot);
-                  return (
-                    <Chip
-                      key={slot}
-                      label={isBooked ? `${slot} (Booked)` : slot}
-                      clickable={!busy && !isBooked}
-                      color={selected ? "primary" : isBooked ? "default" : "default"}
-                      variant={selected ? "filled" : "outlined"}
-                      disabled={isBooked}
-                      onClick={() => !isBooked && setStartTime(slot)}
-                      sx={{
-                        fontWeight: selected ? 700 : 500,
-                        opacity: isBooked ? 0.45 : 1,
-                        textDecoration: isBooked ? "line-through" : "none",
-                      }}
-                    />
-                  );
-                })}
-              </Box>
+              {visibleSlots.length === 0 ? (
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  No more time slots available for today. Please select an upcoming date.
+                </Alert>
+              ) : (
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                  {visibleSlots.map((slot) => {
+                    const selected = startTime === slot;
+                    const isBooked = bookedSlots.has(slot);
+                    return (
+                      <Chip
+                        key={slot}
+                        label={isBooked ? `${slot} (Booked)` : slot}
+                        clickable={!busy && !isBooked}
+                        color={selected ? "primary" : isBooked ? "default" : "default"}
+                        variant={selected ? "filled" : "outlined"}
+                        disabled={isBooked}
+                        onClick={() => !isBooked && setStartTime(slot)}
+                        sx={{
+                          fontWeight: selected ? 700 : 500,
+                          opacity: isBooked ? 0.45 : 1,
+                          textDecoration: isBooked ? "line-through" : "none",
+                        }}
+                      />
+                    );
+                  })}
+                </Box>
+              )}
             </Box>
 
             <TextField

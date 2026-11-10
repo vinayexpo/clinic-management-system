@@ -84,7 +84,7 @@ import { AiConsultAssist } from "./components/AiConsultAssist";
 import { AiPatientSummary } from "./components/AiPatientSummary";
 import { AISettings } from "./components/AISettings";
 import { useAiStatus } from "./lib/ai";
-import { istCompactDate, istDate, istDateTime, istLongDate, istMonthStart } from "./lib/ist";
+import { istCompactDate, istDate, istDateTime, istLongDate, istMonthStart, istNextSlotTime, istTime24 } from "./lib/ist";
 import { ClinicHoursEditor, readClinicHours, type ClinicHours } from "./components/ClinicHours";
 import { FilterSelect, PagerBar, PersonAvatar, useDebounced } from "./components/common";
 import { PatientsPage } from "./pages/PatientsPage";
@@ -1525,10 +1525,25 @@ function AppointmentDialogReal({ mode, patients, doctors, token, onClose, onSave
   mode: AppointmentRow | "walk-in" | "appointment"; patients: PatientRow[]; doctors: DoctorRow[]; token: string; onClose: () => void; onSaved: () => Promise<void>;
 }) {
   const existing = typeof mode === "object" ? mode : null;
+  const isWalkIn = mode === "walk-in";
+  const todayIst = istDate();
+  const currentIst = istTime24();
+
+  const ALL_SLOTS = [
+    "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
+    "12:00", "12:30", "13:00", "13:30", "14:00", "14:30", "15:00",
+    "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30",
+    "19:00", "19:30", "20:00",
+  ];
+
   const [patientId, setPatientId] = useState<string>(existing ? String(existing.patient_id) : patients[0] ? String(patients[0].id) : "");
   const [doctorId, setDoctorId] = useState<string>(existing ? String(existing.doctor_id) : doctors[0] ? String(doctors[0].id) : "");
-  const [date, setDate] = useState<string>(existing ? String(existing.appointment_date).slice(0, 10) : istDate());
-  const [time, setTime] = useState(existing ? String(existing.start_time).slice(0, 5) : "10:00");
+  const [date, setDate] = useState<string>(existing ? String(existing.appointment_date).slice(0, 10) : todayIst);
+  const [time, setTime] = useState(() => {
+    if (existing) return String(existing.start_time).slice(0, 5);
+    if (isWalkIn) return currentIst;
+    return istNextSlotTime(15);
+  });
   const [endTime, setEndTime] = useState(existing?.end_time ? String(existing.end_time).slice(0, 5) : "");
   const [reason, setReason] = useState(existing?.reason_for_visit ?? "");
   const [patientSearch, setPatientSearch] = useState("");
@@ -1538,6 +1553,12 @@ function AppointmentDialogReal({ mode, patients, doctors, token, onClose, onSave
   const debouncedPatientSearch = useDebounced(patientSearch, 250);
   const patientOptions = Array.from(new Map([...patients, ...patientMatches].map((p) => [p.id, p])).values());
   const selectedPatient = patientOptions.find((p) => p.id === Number(patientId)) ?? null;
+
+  const isToday = date === todayIst;
+  // On the same date, slots before current time must NOT be shown!
+  const visibleSlots = ALL_SLOTS.filter((s) => !isToday || s >= currentIst);
+  const isPastTimeOnToday = isToday && time < currentIst;
+
   useLiveRefresh(async () => {
     const result = await patientApi.list(token, { page: 1, per_page: 50, search: debouncedPatientSearch || undefined, sort: "first_name", direction: "asc" });
     setPatientMatches((result as unknown as { data: Paginated<PatientRow> }).data.data);
@@ -1548,12 +1569,23 @@ function AppointmentDialogReal({ mode, patients, doctors, token, onClose, onSave
       .then((res) => setPatientMatches((res as unknown as { data: { data: PatientRow[] } }).data.data))
       .catch((e: unknown) => setErr(e instanceof Error ? e.message : "Could not search patients."));
   }, [token, debouncedPatientSearch]);
+
   useEffect(() => {
     if (!existing || patientOptions.some((p) => p.id === existing.patient_id)) return;
     patientApi.get(token, existing.patient_id).then((res) => setPatientMatches((all) => [...all, (res as unknown as { data: PatientRow }).data])).catch(() => {});
   }, [existing, token, patientOptions]);
+
   const submit = async () => {
-    setErr(""); setBusy(true);
+    setErr("");
+    if (!existing && date < todayIst) {
+      setErr("Appointment date cannot be in the past.");
+      return;
+    }
+    if (isToday && time < currentIst) {
+      setErr(`For today's date, please select a present or upcoming time (current time is ${currentIst}).`);
+      return;
+    }
+    setBusy(true);
     try {
       if (existing) {
         await appointmentApi.update(token, existing.id, { doctor_id: Number(doctorId), appointment_date: date, start_time: time, end_time: endTime || undefined, reason_for_visit: reason || undefined });
@@ -1565,17 +1597,111 @@ function AppointmentDialogReal({ mode, patients, doctors, token, onClose, onSave
       await onSaved();
     } catch (e: unknown) { setErr(e instanceof Error ? e.message : "Failed to save appointment"); } finally { setBusy(false); }
   };
+
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="sm"><DialogTitle>{existing ? "Reschedule appointment" : mode === "walk-in" ? "Register walk-in" : "Book appointment"}</DialogTitle>
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>{existing ? "Reschedule appointment" : mode === "walk-in" ? "Register walk-in" : "Book appointment"}</DialogTitle>
       <DialogContent>
         {err && <Alert severity="error" sx={{ mt: 1, mb: 1 }}>{err}</Alert>}
-        <Autocomplete options={patientOptions} value={selectedPatient} getOptionLabel={(p) => `${patientDisplay(p)} (${p.patient_number})`} isOptionEqualToValue={(a, b) => a.id === b.id} onChange={(_, p) => setPatientId(p ? String(p.id) : "")} inputValue={patientSearch} onInputChange={(_, value) => setPatientSearch(value)} renderInput={(params) => <TextField {...params} label="Patient" placeholder="Search name, phone or patient ID" />} sx={{ mt: 1 }} />
-        <TextField select fullWidth label="Doctor" value={doctorId} onChange={(e) => setDoctorId(e.target.value)} sx={{ mt: 2 }}>{doctors.map((d) => <MenuItem key={d.id} value={String(d.id)}>{d.display_name}</MenuItem>)}</TextField>
-        <Box className="two-fields"><TextField type="date" label="Date" value={date} onChange={(e) => setDate(e.target.value)} InputLabelProps={{ shrink: true }} /><TextField type="time" label="Start time" value={time} onChange={(e) => setTime(e.target.value)} InputLabelProps={{ shrink: true }} /></Box>
-        <TextField type="time" label="End time (optional)" value={endTime} onChange={(e) => setEndTime(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth sx={{ mt: 2 }} />
+        {isPastTimeOnToday && (
+          <Alert severity="warning" sx={{ mt: 1, mb: 1 }}>
+            Selected time ({time}) is in the past for today. Please select a time from {currentIst} onwards.
+          </Alert>
+        )}
+        <Autocomplete
+          options={patientOptions}
+          value={selectedPatient}
+          getOptionLabel={(p) => `${patientDisplay(p)} (${p.patient_number})`}
+          isOptionEqualToValue={(a, b) => a.id === b.id}
+          onChange={(_, p) => setPatientId(p ? String(p.id) : "")}
+          inputValue={patientSearch}
+          onInputChange={(_, value) => setPatientSearch(value)}
+          renderInput={(params) => <TextField {...params} label="Patient" placeholder="Search name, phone or patient ID" />}
+          sx={{ mt: 1 }}
+        />
+        <TextField select fullWidth label="Doctor" value={doctorId} onChange={(e) => setDoctorId(e.target.value)} sx={{ mt: 2 }}>
+          {doctors.map((d) => <MenuItem key={d.id} value={String(d.id)}>{d.display_name}</MenuItem>)}
+        </TextField>
+        <Box className="two-fields" sx={{ mt: 2 }}>
+          <TextField
+            type="date"
+            label="Date"
+            value={date}
+            onChange={(e) => {
+              const newDate = e.target.value;
+              setDate(newDate);
+              if (newDate === todayIst && time < currentIst) {
+                setTime(isWalkIn ? currentIst : istNextSlotTime(15));
+              }
+            }}
+            InputLabelProps={{ shrink: true }}
+            inputProps={{ min: existing ? undefined : todayIst }}
+          />
+          <TextField
+            type="time"
+            label="Start time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            inputProps={{ min: isToday ? currentIst : undefined }}
+            error={isPastTimeOnToday}
+            helperText={isToday ? `Clinic time: ${currentIst} (past times hidden)` : undefined}
+          />
+        </Box>
+
+        {/* Quick Time Slots: slots before current time on today are NEVER shown */}
+        <Box sx={{ mt: 1.5, mb: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, fontWeight: 600 }}>
+            {isToday ? `Available times for today (from ${currentIst} onwards):` : "Quick time slots:"}
+          </Typography>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, maxHeight: 110, overflowY: "auto", p: 0.5, bgcolor: "#fafcfb", borderRadius: 1.5, border: "1px solid #e7efe9" }}>
+            {isWalkIn && isToday && (
+              <Chip
+                label={`Now (${currentIst})`}
+                color={time === currentIst ? "primary" : "default"}
+                variant={time === currentIst ? "filled" : "outlined"}
+                onClick={() => setTime(currentIst)}
+                size="small"
+                clickable
+                sx={{ fontWeight: time === currentIst ? 700 : 500 }}
+              />
+            )}
+            {visibleSlots.map((slot) => {
+              const selected = time === slot;
+              return (
+                <Chip
+                  key={slot}
+                  label={slot}
+                  size="small"
+                  clickable
+                  color={selected ? "primary" : "default"}
+                  variant={selected ? "filled" : "outlined"}
+                  onClick={() => setTime(slot)}
+                  sx={{ fontWeight: selected ? 700 : 500 }}
+                />
+              );
+            })}
+            {visibleSlots.length === 0 && (!isWalkIn || !isToday) && (
+              <Typography variant="caption" color="text.secondary" sx={{ py: 0.5, px: 1 }}>
+                No standard slots remaining for today.
+              </Typography>
+            )}
+          </Box>
+        </Box>
+
+        <TextField type="time" label="End time (optional)" value={endTime} onChange={(e) => setEndTime(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth sx={{ mt: 1.5 }} />
         <TextField fullWidth label="Reason for visit" value={reason} onChange={(e) => setReason(e.target.value)} sx={{ mt: 2 }} />
       </DialogContent>
-      <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" disabled={!patientId || !doctorId || !time || busy} onClick={() => void submit()}>{busy ? <CircularProgress size={18} /> : existing ? "Save reschedule" : mode === "walk-in" ? "Register walk-in" : "Book appointment"}</Button></DialogActions>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button
+          variant="contained"
+          disabled={!patientId || !doctorId || !time || isPastTimeOnToday || busy}
+          onClick={() => void submit()}
+        >
+          {busy ? <CircularProgress size={18} /> : existing ? "Save reschedule" : mode === "walk-in" ? "Register walk-in" : "Book appointment"}
+        </Button>
+      </DialogActions>
     </Dialog>
   );
 }
