@@ -479,6 +479,8 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
   const [amendReason, setAmendReason] = useState("Clinical addendum");
   const [amendNotes, setAmendNotes] = useState("");
   const [amendBusy, setAmendBusy] = useState(false);
+  const [hasPendingAiDraft, setHasPendingAiDraft] = useState(false);
+  const [finalizeConfirm, setFinalizeConfirm] = useState<"unapplied-ai" | "empty-notes" | null>(null);
   const [prescriptionDialogOpen, setPrescriptionDialogOpen] = useState(false);
   const [editingPrescription, setEditingPrescription] = useState<PrescriptionRow | null>(null);
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
@@ -506,6 +508,8 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
   ].map((patient) => [patient.id, patient])).values());
   const patient = patientOptions.find((row) => row.id === selectedPatient) ?? null;
   const finalized = activeVisit?.status === "finalized" || activeVisit?.status === "amended";
+  const hasAnyClinicalNotes = Boolean(symptoms.trim() || exam.trim() || diagnosis.trim() || plan.trim() || followUp.trim());
+  const finalizedWithoutNotes = Boolean(activeVisit && finalized && !visitLoading && !hasAnyClinicalNotes);
   const hasUnsavedNotes = !finalized && currentNotes.current.snapshot !== savedNotes.current && (Boolean(activeVisit) || Object.values(vitals).some(Boolean));
 
   const switchPatient = (next: PatientRow | null) => {
@@ -524,6 +528,7 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
     savedNotes.current = notesSnapshot({});
     setRemoteNotesChanged(false); setVisitError(""); setVisitLoading(Boolean(next));
     setAmendDialogOpen(false); setAmendNotes("");
+    setHasPendingAiDraft(false); setFinalizeConfirm(null);
   };
 
   useEffect(() => {
@@ -575,6 +580,7 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
       setPlan(full.treatment_plan ?? "");
       setFollowUp(normalizedFollowUp);
       setVitals(normalizedVitals);
+      setFinalizeConfirm(null);
       if (focus) setFocusVisitId(full.id);
     } catch (error) {
       if (request !== visitOpenRequest.current) return;
@@ -691,6 +697,7 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
       setFollowUp(normalizedFollowUp);
       setVitals(normalizedVitals);
       setRemoteNotesChanged(false); setVisitError("");
+      setHasPendingAiDraft(false); setFinalizeConfirm(null);
       toast("Consultation started");
       await fetchVisits(true);
     } catch (e: unknown) { toast(e instanceof Error ? e.message : "Failed to start visit"); } finally { setBusy(false); }
@@ -712,6 +719,7 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
   };
   const finalize = async () => {
     if (!activeVisit || visitLoading || activeVisit.patient_id !== selectedPatient) return;
+    setFinalizeConfirm(null);
     clinicalGeneration.current += 1;
     setBusy(true);
     try {
@@ -742,6 +750,19 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
       await fetchVisits(true);
     }
     catch (e: unknown) { toast(e instanceof Error ? e.message : "Finalize failed"); } finally { setBusy(false); }
+  };
+
+  const requestFinalize = () => {
+    if (!activeVisit || visitLoading || busy || activeVisit.patient_id !== selectedPatient) return;
+    if (hasPendingAiDraft) {
+      setFinalizeConfirm("unapplied-ai");
+      return;
+    }
+    if (!hasAnyClinicalNotes) {
+      setFinalizeConfirm("empty-notes");
+      return;
+    }
+    void finalize();
   };
 
   const doAmend = async () => {
@@ -867,9 +888,16 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
                 setPlan((prev) => (prev ? `${prev}\n\nFollow-up: ${val}` : `Follow-up: ${val}`));
               }
             }}
+            onPendingDraftChange={setHasPendingAiDraft}
             onOpenSettings={onOpenSettings}
             toast={toast}
           />
+
+          {finalizedWithoutNotes && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              No clinical notes were recorded before this consultation was finalized. Use <strong>Add amendment</strong> below if you need to add clinical details.
+            </Alert>
+          )}
 
           <TextField fullWidth multiline minRows={2} label="Presenting symptoms" value={symptoms} onChange={(e) => setSymptoms(e.target.value)} disabled={!activeVisit || visitLoading} InputProps={{ readOnly: finalized }} sx={{ mt: 2, ...(finalized ? { bgcolor: "#f8faf9" } : {}) }} />
           <TextField fullWidth multiline minRows={2} label="Examination notes" value={exam} onChange={(e) => setExam(e.target.value)} disabled={!activeVisit || visitLoading} InputProps={{ readOnly: finalized }} sx={{ mt: 2, ...(finalized ? { bgcolor: "#f8faf9" } : {}) }} />
@@ -1090,7 +1118,7 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
             {!finalized && (
               <>
                 <Button variant="outlined" disabled={!activeVisit || busy || visitLoading} onClick={() => void saveDraft()}>{busy ? <CircularProgress size={18} /> : "Save draft"}</Button>
-                <Button variant="contained" disabled={!activeVisit || busy || visitLoading} onClick={() => void finalize()}>Finalize consultation</Button>
+                <Button variant="contained" disabled={!activeVisit || busy || visitLoading} onClick={requestFinalize}>Finalize consultation</Button>
               </>
             )}
             {finalized && (
@@ -1135,6 +1163,27 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
           }}
         />
       )}
+
+      <Dialog open={Boolean(finalizeConfirm)} onClose={() => setFinalizeConfirm(null)} aria-labelledby="finalize-confirm-title" aria-describedby="finalize-confirm-description" fullWidth maxWidth="xs" sx={{ "& .MuiDialogActions-root": { padding: "16px !important", gap: 1, alignItems: "stretch" }, "& .MuiDialogActions-root .MuiButton-root": { minHeight: 40 } }}>
+        <DialogTitle id="finalize-confirm-title">
+          {finalizeConfirm === "unapplied-ai" ? "Apply AI draft before finalizing?" : "Finalize without clinical notes?"}
+        </DialogTitle>
+        <DialogContent sx={{ pb: 1.5 }}>
+          <Typography id="finalize-confirm-description" variant="body2" color="text.secondary">
+            {finalizeConfirm === "unapplied-ai"
+              ? "Your AI Clinical Notes Assistant still has an unapplied draft. Finalizing now will lock this visit without entering those draft notes."
+              : "All clinical note fields are currently blank. Once finalized, these fields become read-only and can only be updated with an audited amendment."}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" color="warning" disabled={busy} onClick={() => void finalize()}>
+            {finalizeConfirm === "unapplied-ai" ? "Finalize anyway" : "Finalize empty"}
+          </Button>
+          <Button variant="contained" autoFocus onClick={() => setFinalizeConfirm(null)}>
+            {finalizeConfirm === "unapplied-ai" ? "Go back & apply" : "Go back & enter notes"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(pendingSwitch)} onClose={() => setPendingSwitch(null)} aria-labelledby="consultation-switch-title" aria-describedby="consultation-switch-description" fullWidth maxWidth="xs" sx={{ "& .MuiDialogActions-root": { padding: "16px !important", alignItems: "stretch" }, "& .MuiDialogActions-root .MuiButton-root": { minHeight: 44, p: 1 } }}>
         <DialogTitle id="consultation-switch-title">Discard unsaved notes?</DialogTitle>

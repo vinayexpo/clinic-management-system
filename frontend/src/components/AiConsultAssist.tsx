@@ -53,6 +53,7 @@ export function AiConsultAssist({
   busyParent,
   onApply,
   onApplyField,
+  onPendingDraftChange,
   onOpenSettings,
   toast,
 }: {
@@ -68,6 +69,7 @@ export function AiConsultAssist({
   busyParent: boolean;
   onApply: (draft: AiConsultDraft) => void;
   onApplyField?: (field: keyof AiConsultDraft, value: string) => void;
+  onPendingDraftChange?: (hasPendingDraft: boolean) => void;
   onOpenSettings?: () => void;
   toast: (message: string) => void;
 }) {
@@ -82,6 +84,13 @@ export function AiConsultAssist({
   const featureOn = configured && ai.features.consultation === true;
   const closed = visit?.status === "finalized" || visit?.status === "amended";
   const usable = featureOn && !disabled && !closed && Boolean(visit);
+  const hasUnappliedDraft = Boolean(draft) && !closed && FIELD_LABELS.some(([key]) => Boolean(draft?.[key]) && !appliedFields[key]);
+
+  useEffect(() => {
+    onPendingDraftChange?.(hasUnappliedDraft);
+  }, [hasUnappliedDraft, onPendingDraftChange]);
+
+  useEffect(() => () => onPendingDraftChange?.(false), [onPendingDraftChange]);
 
   useEffect(() => {
     // A different visit clears any old draft
