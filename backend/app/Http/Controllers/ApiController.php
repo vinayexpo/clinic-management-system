@@ -522,21 +522,36 @@ class ApiController extends Controller
         $visit->update($r->validate(['symptoms' => 'nullable|string', 'vitals' => 'nullable|array', 'examination_notes' => 'nullable|string', 'diagnosis' => 'nullable|string', 'treatment_plan' => 'nullable|string', 'follow_up_date' => 'nullable|date']));
         $this->audit($r, 'updated', 'visit', $visit->id, 'Consultation draft updated.');
 
-        return $this->ok($visit);
+        return $this->ok($visit->fresh(['patient', 'doctor', 'prescriptions.items', 'amendments.user', 'amendments.doctor', 'invoices']));
     }
 
     public function finalizeVisit(Request $r, Visit $visit): mixed
     {
         abort_if(in_array($visit->status, ['finalized', 'amended'], true), 422, 'Already finalized.');
         abort_unless($r->user()->role === 'admin' || ($r->user()->role === 'doctor' && $visit->doctor?->user_id === $r->user()->id), 403, 'You may only finalize your own consultations.');
-        $visit->update(['status' => 'finalized', 'finalized_at' => now()]);
+
+        $noteData = $r->validate([
+            'symptoms' => 'sometimes|nullable|string',
+            'vitals' => 'sometimes|nullable|array',
+            'examination_notes' => 'sometimes|nullable|string',
+            'diagnosis' => 'sometimes|nullable|string',
+            'treatment_plan' => 'sometimes|nullable|string',
+            'follow_up_date' => 'sometimes|nullable|date',
+        ]);
+
+        $visit->update(array_merge($noteData, [
+            'status' => 'finalized',
+            'finalized_at' => now(),
+        ]));
+
         if ($visit->appointment_id) {
             $visit->appointment?->update(['status' => 'completed']);
         }
         $this->audit($r, 'finalized', 'visit', $visit->id, 'Consultation finalized.');
-        $this->notifyAboutFinalizedVisit($visit);
+        $freshVisit = $visit->fresh(['patient', 'doctor', 'prescriptions.items', 'amendments.user', 'amendments.doctor', 'invoices']);
+        $this->notifyAboutFinalizedVisit($freshVisit);
 
-        return $this->ok($visit);
+        return $this->ok($freshVisit);
     }
 
     private function notifyAboutFinalizedVisit(Visit $visit): void

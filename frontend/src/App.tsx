@@ -485,7 +485,7 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
   const [remoteNotesChanged, setRemoteNotesChanged] = useState(false);
   const savedNotes = useRef("");
   const notesSnapshot = (v: Pick<VisitRow, "symptoms" | "examination_notes" | "diagnosis" | "treatment_plan" | "follow_up_date" | "vitals">) => JSON.stringify([
-    v.symptoms ?? "", v.examination_notes ?? "", v.diagnosis ?? "", v.treatment_plan ?? "", v.follow_up_date ?? "",
+    v.symptoms ?? "", v.examination_notes ?? "", v.diagnosis ?? "", v.treatment_plan ?? "", v.follow_up_date ? String(v.follow_up_date).slice(0, 10) : "",
     ["bp", "pulse", "temp", "weight"].map((key) => v.vitals?.[key] ?? ""),
   ]);
   const currentNotes = useRef({ id: activeVisit?.id, snapshot: "" });
@@ -505,7 +505,8 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
     ...(selectedPatientRow ? [selectedPatientRow] : []), ...patients, ...patientMatches,
   ].map((patient) => [patient.id, patient])).values());
   const patient = patientOptions.find((row) => row.id === selectedPatient) ?? null;
-  const hasUnsavedNotes = currentNotes.current.snapshot !== savedNotes.current && (Boolean(activeVisit) || Object.values(vitals).some(Boolean));
+  const finalized = activeVisit?.status === "finalized" || activeVisit?.status === "amended";
+  const hasUnsavedNotes = !finalized && currentNotes.current.snapshot !== savedNotes.current && (Boolean(activeVisit) || Object.values(vitals).some(Boolean));
 
   const switchPatient = (next: PatientRow | null) => {
     clinicalGeneration.current += 1;
@@ -554,14 +555,16 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
     if (v.patient_id !== selectedPatientRef.current) return;
     const request = ++visitOpenRequest.current;
     openingVisit.current = v.id;
-    const generation = ++clinicalGeneration.current;
+    clinicalGeneration.current += 1;
     setVisitLoading(true); setVisitError("");
     try {
       const res = await visitApi.get(token, v.id);
-      if (request !== visitOpenRequest.current || generation !== clinicalGeneration.current || v.patient_id !== selectedPatientRef.current) return;
+      if (request !== visitOpenRequest.current || v.patient_id !== selectedPatientRef.current) return;
       const full = (res as unknown as { data: VisitRow }).data;
       if (full.patient_id !== selectedPatientRef.current) throw new Error("This consultation does not belong to the selected patient.");
-      savedNotes.current = notesSnapshot(full);
+      const normalizedFollowUp = full.follow_up_date ? String(full.follow_up_date).slice(0, 10) : "";
+      const normalizedVitals = { bp: "", pulse: "", temp: "", weight: "", ...((full.vitals as Record<string, string>) || {}) };
+      savedNotes.current = notesSnapshot({ ...full, follow_up_date: normalizedFollowUp, vitals: normalizedVitals });
       currentNotes.current = { id: full.id, snapshot: savedNotes.current };
       setRemoteNotesChanged(false);
       setActiveVisit(full);
@@ -570,11 +573,11 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
       setExam(full.examination_notes ?? "");
       setDiagnosis(full.diagnosis ?? "");
       setPlan(full.treatment_plan ?? "");
-      setFollowUp(full.follow_up_date ?? "");
-      setVitals((full.vitals as Record<string, string>) ?? { bp: "", pulse: "", temp: "", weight: "" });
+      setFollowUp(normalizedFollowUp);
+      setVitals(normalizedVitals);
       if (focus) setFocusVisitId(full.id);
     } catch (error) {
-      if (request !== visitOpenRequest.current || generation !== clinicalGeneration.current) return;
+      if (request !== visitOpenRequest.current) return;
       setVisitError(error instanceof Error ? error.message : "Could not open this consultation.");
     } finally {
       if (request === visitOpenRequest.current) {
@@ -597,7 +600,11 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
 
   const requestSwitch = (target: { patient: PatientRow | null } | { visit: VisitRow }) => {
     if ("visit" in target && target.visit.id === currentNotes.current.id) {
-      setFocusVisitId(target.visit.id);
+      if (!hasUnsavedNotes) {
+        void openVisit(target.visit, true);
+      } else {
+        setFocusVisitId(target.visit.id);
+      }
       return;
     }
     if (hasUnsavedNotes || amendNotes.trim()) {
@@ -646,13 +653,16 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
       if (notesSnapshot(full) !== savedNotes.current || full.status !== activeVisit?.status) setRemoteNotesChanged(true);
       setActiveVisit((previous) => previous?.id === id ? { ...previous, status: full.status, amendments: full.amendments } : previous);
     } else {
-      savedNotes.current = notesSnapshot(full);
+      const normalizedFollowUp = full.follow_up_date ? String(full.follow_up_date).slice(0, 10) : "";
+      const normalizedVitals = { bp: "", pulse: "", temp: "", weight: "", ...((full.vitals as Record<string, string>) || {}) };
+      savedNotes.current = notesSnapshot({ ...full, follow_up_date: normalizedFollowUp, vitals: normalizedVitals });
+      currentNotes.current = { id: full.id, snapshot: savedNotes.current };
       setRemoteNotesChanged(false);
       setActiveVisit(full);
       setSymptoms(full.symptoms ?? ""); setExam(full.examination_notes ?? "");
       setDiagnosis(full.diagnosis ?? ""); setPlan(full.treatment_plan ?? "");
-      setFollowUp(full.follow_up_date ?? "");
-      setVitals((full.vitals as Record<string, string>) ?? { bp: "", pulse: "", temp: "", weight: "" });
+      setFollowUp(normalizedFollowUp);
+      setVitals(normalizedVitals);
     }
   });
   useEffect(() => { if (clinicianDoctors[0] && !selectedDoctor) setSelectedDoctor(clinicianDoctors[0].id); }, [clinicianDoctors, selectedDoctor]);
@@ -670,14 +680,16 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
       });
       if (generation !== clinicalGeneration.current) return;
       const created = res.data;
-      savedNotes.current = notesSnapshot(created);
+      const normalizedFollowUp = created.follow_up_date ? String(created.follow_up_date).slice(0, 10) : "";
+      const normalizedVitals = { bp: "", pulse: "", temp: "", weight: "", ...((created.vitals as Record<string, string>) || {}) };
+      savedNotes.current = notesSnapshot({ ...created, follow_up_date: normalizedFollowUp, vitals: normalizedVitals });
       currentNotes.current = { id: created.id, snapshot: savedNotes.current };
       setActiveVisit(created);
       setSelectedDoctor(created.doctor_id);
       setSymptoms(created.symptoms ?? ""); setExam(created.examination_notes ?? "");
       setDiagnosis(created.diagnosis ?? ""); setPlan(created.treatment_plan ?? "");
-      setFollowUp(created.follow_up_date ?? "");
-      setVitals((created.vitals as Record<string, string>) ?? { bp: "", pulse: "", temp: "", weight: "" });
+      setFollowUp(normalizedFollowUp);
+      setVitals(normalizedVitals);
       setRemoteNotesChanged(false); setVisitError("");
       toast("Consultation started");
       await fetchVisits(true);
@@ -688,17 +700,47 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
     clinicalGeneration.current += 1;
     setBusy(true);
     try {
-      await visitApi.update(token, activeVisit.id, { symptoms, vitals, examination_notes: exam, diagnosis, treatment_plan: plan, follow_up_date: followUp || null });
+      const res = await visitApi.update(token, activeVisit.id, { symptoms, vitals, examination_notes: exam, diagnosis, treatment_plan: plan, follow_up_date: followUp || null });
+      const updated = (res as unknown as { data: VisitRow }).data;
       savedNotes.current = notesSnapshot({ symptoms, vitals, examination_notes: exam, diagnosis, treatment_plan: plan, follow_up_date: followUp });
+      currentNotes.current = { id: activeVisit.id, snapshot: savedNotes.current };
+      setActiveVisit((prev) => prev ? { ...prev, ...updated } : updated);
       setRemoteNotesChanged(false);
       toast("Draft saved");
+      await fetchVisits(true);
     } catch (e: unknown) { toast(e instanceof Error ? e.message : "Save failed"); } finally { setBusy(false); }
   };
   const finalize = async () => {
     if (!activeVisit || visitLoading || activeVisit.patient_id !== selectedPatient) return;
     clinicalGeneration.current += 1;
     setBusy(true);
-    try { await visitApi.finalize(token, activeVisit.id); setActiveVisit({ ...activeVisit, status: "finalized" }); toast("Consultation finalized — now read-only"); }
+    try {
+      const notePayload = {
+        symptoms,
+        vitals,
+        examination_notes: exam,
+        diagnosis,
+        treatment_plan: plan,
+        follow_up_date: followUp || null,
+      };
+      const res = await visitApi.finalize(token, activeVisit.id, notePayload);
+      const updated = (res as unknown as { data: VisitRow }).data;
+      const normalizedFollowUp = updated.follow_up_date ? String(updated.follow_up_date).slice(0, 10) : (followUp || "");
+      const normalizedVitals = { bp: "", pulse: "", temp: "", weight: "", ...((updated.vitals as Record<string, string>) || vitals) };
+      savedNotes.current = notesSnapshot({
+        symptoms: updated.symptoms ?? symptoms,
+        examination_notes: updated.examination_notes ?? exam,
+        diagnosis: updated.diagnosis ?? diagnosis,
+        treatment_plan: updated.treatment_plan ?? plan,
+        follow_up_date: normalizedFollowUp,
+        vitals: normalizedVitals,
+      });
+      currentNotes.current = { id: updated.id, snapshot: savedNotes.current };
+      setRemoteNotesChanged(false);
+      setActiveVisit(updated);
+      toast("Consultation finalized — now read-only");
+      await fetchVisits(true);
+    }
     catch (e: unknown) { toast(e instanceof Error ? e.message : "Finalize failed"); } finally { setBusy(false); }
   };
 
@@ -722,8 +764,6 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
       setAmendBusy(false);
     }
   };
-
-  const finalized = activeVisit?.status === "finalized" || activeVisit?.status === "amended";
 
   /** The AI draft panel showed every value; accepting copies them into the form. */
   const applyAiDraft = (d: AiConsultDraft) => {
@@ -763,17 +803,30 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
           <Divider sx={{ my: 2 }} />
           <Typography variant="subtitle2" className="field-label">VITALS</Typography>
           <Box className="vitals-grid">
-            <TextField label="Blood pressure (mmHg)" value={vitals.bp} onChange={(e) => setVitals((v) => ({ ...v, bp: e.target.value }))} disabled={finalized || visitLoading || busy} />
-            <TextField label="Pulse (bpm)" value={vitals.pulse} onChange={(e) => setVitals((v) => ({ ...v, pulse: e.target.value }))} disabled={finalized || visitLoading || busy} />
-            <TextField label="Temperature (°C)" value={vitals.temp} onChange={(e) => setVitals((v) => ({ ...v, temp: e.target.value }))} disabled={finalized || visitLoading || busy} />
-            <TextField label="Weight (kg)" value={vitals.weight} onChange={(e) => setVitals((v) => ({ ...v, weight: e.target.value }))} disabled={finalized || visitLoading || busy} />
+            <TextField label="Blood pressure (mmHg)" value={vitals.bp} onChange={(e) => setVitals((v) => ({ ...v, bp: e.target.value }))} disabled={!activeVisit || visitLoading || busy} InputProps={{ readOnly: finalized }} />
+            <TextField label="Pulse (bpm)" value={vitals.pulse} onChange={(e) => setVitals((v) => ({ ...v, pulse: e.target.value }))} disabled={!activeVisit || visitLoading || busy} InputProps={{ readOnly: finalized }} />
+            <TextField label="Temperature (°C)" value={vitals.temp} onChange={(e) => setVitals((v) => ({ ...v, temp: e.target.value }))} disabled={!activeVisit || visitLoading || busy} InputProps={{ readOnly: finalized }} />
+            <TextField label="Weight (kg)" value={vitals.weight} onChange={(e) => setVitals((v) => ({ ...v, weight: e.target.value }))} disabled={!activeVisit || visitLoading || busy} InputProps={{ readOnly: finalized }} />
           </Box>
           <Accordion disableGutters elevation={0} sx={{ mt: 2, border: "1px solid #e5ece8", borderRadius: "12px !important", "&:before": { display: "none" } }}>
             <AccordionSummary expandIcon={<IconChevronRight size={18} />}><Typography component="h3" variant="subtitle2">Consultation history{visitMeta ? ` (${visitMeta.total})` : ""}</Typography></AccordionSummary>
             <AccordionDetails>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 1 }}><TextField size="small" label="Search visits" value={visitSearch} onChange={(e) => setVisitSearch(e.target.value)} /><FilterSelect label="Status" value={visitStatus} onChange={setVisitStatus} width={145} options={[{ value: "draft", label: "Draft" }, { value: "finalized", label: "Finalized" }, { value: "amended", label: "Amended" }]} /></Stack>
               {visits.length === 0 && <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>No consultations match these filters.</Typography>}
-               {visits.map((v) => <Box key={v.id} sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1, py: 1, borderBottom: "1px solid #edf1ef" }}><Box sx={{ minWidth: 0 }}><Typography variant="body2" fontWeight={700}>{v.visit_number}, {String(v.visit_date).slice(0, 10)}</Typography><Typography variant="caption" color="text.secondary">{v.patient ? patientDisplay(v.patient) : `Patient ${v.patient_id}`}, {v.diagnosis || "No diagnosis recorded"}</Typography></Box><Button size="small" aria-label={`Open consultation ${v.visit_number}`} aria-current={activeVisit?.id === v.id ? "true" : undefined} disabled={busy || amendBusy || visitLoading} onClick={() => requestSwitch({ visit: v })}>Open</Button></Box>)}
+               {visits.map((v) => (
+                 <Box key={v.id} sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1, py: 1, borderBottom: "1px solid #edf1ef" }}>
+                   <Box sx={{ minWidth: 0 }}>
+                     <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
+                       <Typography variant="body2" fontWeight={700}>{v.visit_number}, {String(v.visit_date).slice(0, 10)}</Typography>
+                       <Chip size="small" label={v.status} color={v.status === "amended" ? "info" : v.status === "finalized" ? "success" : "warning"} sx={{ height: 18, fontSize: "0.65rem" }} />
+                     </Stack>
+                     <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                       {v.patient ? patientDisplay(v.patient) : `Patient ${v.patient_id}`}, {v.diagnosis || "No diagnosis recorded"}
+                     </Typography>
+                   </Box>
+                   <Button size="small" aria-label={`Open consultation ${v.visit_number}`} aria-current={activeVisit?.id === v.id ? "true" : undefined} disabled={busy || amendBusy || visitLoading} onClick={() => requestSwitch({ visit: v })}>Open</Button>
+                 </Box>
+               ))}
               {visitMeta && <PagerBar page={visitMeta.current_page} lastPage={visitMeta.last_page} total={visitMeta.total} perPage={visitPerPage} onPage={setVisitPage} onPerPage={(n) => { setVisitPerPage(n); setVisitPage(1); }} />}
             </AccordionDetails>
           </Accordion>
@@ -818,11 +871,11 @@ function ConsultationReal({ role, currentUserId, patients, doctors, token, toast
             toast={toast}
           />
 
-          <TextField fullWidth multiline minRows={2} label="Presenting symptoms" value={symptoms} onChange={(e) => setSymptoms(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
-          <TextField fullWidth multiline minRows={2} label="Examination notes" value={exam} onChange={(e) => setExam(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
-          <TextField fullWidth label="Diagnosis" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
-          <TextField fullWidth multiline minRows={3} label="Treatment plan" value={plan} onChange={(e) => setPlan(e.target.value)} disabled={finalized || !activeVisit || visitLoading} sx={{ mt: 2 }} />
-          <TextField type="date" fullWidth label="Follow-up date" value={followUp} onChange={(e) => setFollowUp(e.target.value)} disabled={finalized || !activeVisit || visitLoading} InputLabelProps={{ shrink: true }} sx={{ mt: 2 }} />
+          <TextField fullWidth multiline minRows={2} label="Presenting symptoms" value={symptoms} onChange={(e) => setSymptoms(e.target.value)} disabled={!activeVisit || visitLoading} InputProps={{ readOnly: finalized }} sx={{ mt: 2, ...(finalized ? { bgcolor: "#f8faf9" } : {}) }} />
+          <TextField fullWidth multiline minRows={2} label="Examination notes" value={exam} onChange={(e) => setExam(e.target.value)} disabled={!activeVisit || visitLoading} InputProps={{ readOnly: finalized }} sx={{ mt: 2, ...(finalized ? { bgcolor: "#f8faf9" } : {}) }} />
+          <TextField fullWidth label="Diagnosis" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} disabled={!activeVisit || visitLoading} InputProps={{ readOnly: finalized }} sx={{ mt: 2, ...(finalized ? { bgcolor: "#f8faf9" } : {}) }} />
+          <TextField fullWidth multiline minRows={3} label="Treatment plan" value={plan} onChange={(e) => setPlan(e.target.value)} disabled={!activeVisit || visitLoading} InputProps={{ readOnly: finalized }} sx={{ mt: 2, ...(finalized ? { bgcolor: "#f8faf9" } : {}) }} />
+          <TextField type="date" fullWidth label="Follow-up date" value={followUp} onChange={(e) => setFollowUp(e.target.value)} disabled={!activeVisit || visitLoading} InputProps={{ readOnly: finalized }} InputLabelProps={{ shrink: true }} sx={{ mt: 2, ...(finalized ? { bgcolor: "#f8faf9" } : {}) }} />
 
           {/* Audited Amendments List */}
           {activeVisit?.amendments && activeVisit.amendments.length > 0 && (
@@ -1474,36 +1527,67 @@ function PatientDetailReal({ token, role, patient: initialPatient, onClose, onBo
         {historyError && <Alert severity="error" sx={{ mb: 1.5 }}>{historyError}</Alert>}
         {role === "receptionist" && <Typography variant="body2" color="text.secondary">Clinical notes are available to authorized clinical staff.</Typography>}
         {!loading && role !== "receptionist" && (visits?.data.length ?? 0) === 0 && <Typography color="text.secondary" sx={{ py: 2 }}>No visits recorded yet.</Typography>}
-        {(visits?.data ?? []).map((v) => (
-          <Box className="history-item" key={v.id} sx={{ py: 1.5, borderBottom: "1px solid #edf1ef", minWidth: 0 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} sx={{ mb: 0.5, minWidth: 0 }}>
-              <Typography fontWeight={700} variant="body2">
-                {String(v.visit_date).slice(0, 10)} {v.visit_number ? `(${v.visit_number})` : ""}
-              </Typography>
-              <Chip label={v.status} size="small" color={v.status === "amended" ? "info" : v.status === "finalized" ? "success" : "warning"} />
-            </Stack>
-            <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, overflowWrap: "anywhere", wordBreak: "break-word" }}>
-              {v.doctor?.display_name ?? "Doctor"}{v.diagnosis ? ` — ${v.diagnosis}` : " — No diagnosis recorded"}
-            </Typography>
-            {(v.treatment_plan || v.symptoms) && (
-              <Typography variant="body2" sx={{ mt: 0.75, overflowWrap: "anywhere", wordBreak: "break-word", color: "#374151" }}>
-                {v.treatment_plan ?? v.symptoms}
-              </Typography>
-            )}
-            {v.amendments && v.amendments.length > 0 && (
-              <Box sx={{ mt: 1, p: 1.25, bgcolor: "#f6f9f8", borderRadius: 1.5, borderLeft: "3px solid #006874", minWidth: 0 }}>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: "primary.main", display: "block", mb: 0.5 }}>
-                  {v.amendments.length} audited amendment{v.amendments.length > 1 ? "s" : ""}:
+        {(visits?.data ?? []).map((v) => {
+          const visitVitals = (v.vitals as Record<string, string>) || {};
+          const vitalEntries = [
+            visitVitals.bp ? `BP: ${visitVitals.bp}` : "",
+            visitVitals.pulse ? `Pulse: ${visitVitals.pulse}` : "",
+            visitVitals.temp ? `Temp: ${visitVitals.temp}` : "",
+            visitVitals.weight ? `Weight: ${visitVitals.weight}` : "",
+          ].filter(Boolean);
+          return (
+            <Box className="history-item" key={v.id} sx={{ py: 1.5, borderBottom: "1px solid #edf1ef", minWidth: 0 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} sx={{ mb: 0.5, minWidth: 0 }}>
+                <Typography fontWeight={700} variant="body2">
+                  {String(v.visit_date).slice(0, 10)} {v.visit_number ? `(${v.visit_number})` : ""}
                 </Typography>
-                {v.amendments.map((am) => (
-                  <Typography key={am.id} variant="caption" color="text.secondary" sx={{ display: "block", overflowWrap: "anywhere", wordBreak: "break-word", mt: 0.25 }}>
-                    • [{am.reason}] {am.notes} ({istDateTime(am.created_at)})
+                <Chip label={v.status} size="small" color={v.status === "amended" ? "info" : v.status === "finalized" ? "success" : "warning"} />
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, overflowWrap: "anywhere", wordBreak: "break-word" }}>
+                {v.doctor?.display_name ?? "Doctor"}{v.diagnosis ? ` — ${v.diagnosis}` : " — No diagnosis recorded"}
+              </Typography>
+              {vitalEntries.length > 0 && (
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                  {vitalEntries.map((item) => (
+                    <Chip key={item} size="small" label={item} variant="outlined" sx={{ height: 22, fontSize: "0.7rem" }} />
+                  ))}
+                </Stack>
+              )}
+              {v.symptoms && (
+                <Typography variant="body2" sx={{ mt: 0.75, overflowWrap: "anywhere", wordBreak: "break-word", color: "#374151" }}>
+                  <strong>Symptoms:</strong> {v.symptoms}
+                </Typography>
+              )}
+              {v.examination_notes && (
+                <Typography variant="body2" sx={{ mt: 0.5, overflowWrap: "anywhere", wordBreak: "break-word", color: "#374151", whiteSpace: "pre-wrap" }}>
+                  <strong>Examination:</strong> {v.examination_notes}
+                </Typography>
+              )}
+              {v.treatment_plan && (
+                <Typography variant="body2" sx={{ mt: 0.5, overflowWrap: "anywhere", wordBreak: "break-word", color: "#374151", whiteSpace: "pre-wrap" }}>
+                  <strong>Treatment plan:</strong> {v.treatment_plan}
+                </Typography>
+              )}
+              {v.follow_up_date && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                  Follow-up: {String(v.follow_up_date).slice(0, 10)}
+                </Typography>
+              )}
+              {v.amendments && v.amendments.length > 0 && (
+                <Box sx={{ mt: 1, p: 1.25, bgcolor: "#f6f9f8", borderRadius: 1.5, borderLeft: "3px solid #006874", minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: "primary.main", display: "block", mb: 0.5 }}>
+                    {v.amendments.length} audited amendment{v.amendments.length > 1 ? "s" : ""}:
                   </Typography>
-                ))}
-              </Box>
-            )}
-          </Box>
-        ))}
+                  {v.amendments.map((am) => (
+                    <Typography key={am.id} variant="caption" color="text.secondary" sx={{ display: "block", overflowWrap: "anywhere", wordBreak: "break-word", mt: 0.25 }}>
+                      • [{am.reason}] {am.notes} ({istDateTime(am.created_at)})
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          );
+        })}
         {visits && role !== "receptionist" && (
           <PagerBar
             page={visits.current_page}

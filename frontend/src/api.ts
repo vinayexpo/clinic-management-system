@@ -392,8 +392,12 @@ export const visitApi = {
   update(token: string, id: number | string, data: Record<string, unknown>) {
     return apiJson<ApiItem<VisitRow>>(`/visits/${id}`, { method: "PUT", body: JSON.stringify(data) }, token);
   },
-  finalize(token: string, id: number | string) {
-    return apiJson<ApiItem<VisitRow>>(`/visits/${id}/finalize`, { method: "POST" }, token);
+  finalize(token: string, id: number | string, data?: Record<string, unknown>) {
+    return apiJson<ApiItem<VisitRow>>(
+      `/visits/${id}/finalize`,
+      { method: "POST", ...(data ? { body: JSON.stringify(data) } : {}) },
+      token,
+    );
   },
   amend(token: string, id: number | string, data: { reason: string; notes: string }) {
     return apiJson<ApiItem<VisitAmendmentRow>>(`/visits/${id}/amendments`, { method: "POST", body: JSON.stringify(data) }, token);
